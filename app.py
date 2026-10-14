@@ -305,10 +305,51 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# chroma vector database
-client = chromadb.PersistentClient(path = "vector_db")
 
-collection = client.get_collection(name="moodcare_knowledge")
+# Chroma vector database
+client = chromadb.PersistentClient(path="vector_db")
+
+collection = client.get_or_create_collection(
+    name="moodcare_knowledge"
+)
+
+# Initialize the collection if it is empty
+if collection.count() == 0:
+    import pandas as pd
+
+    # Load the knowledge dataset
+    df = pd.read_csv("data/moodcare_knowledge.csv")
+
+    # Load the embedding model
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    # Combine category, user state and advice
+    df["combined_text"] = (
+        "Category: " + df["category"].astype(str)
+        + " | User State: " + df["user_state"].astype(str)
+        + " | Advice: " + df["advice"].astype(str)
+    )
+
+    # Generate embeddings
+    embeddings = embedding_model.encode(
+        df["combined_text"].tolist(),
+        show_progress_bar=False
+    )
+
+    # Insert knowledge into ChromaDB
+    collection.add(
+        ids=df["id"].astype(str).tolist(),
+        documents=df["combined_text"].tolist(),
+        embeddings=embeddings.tolist(),
+        metadatas=[
+            {
+                "category": row["category"],
+                "activity_type": row["activity_type"]
+            }
+            for _, row in df.iterrows()
+        ]
+    )
+
 
 # embedding model
 @st.cache_resource
